@@ -14,3 +14,11 @@ A simple game launch splash screen display for Batocera-like distributions.
 
 ## Thanks
 Thanks to the community for being inclusive, welcoming, and kind.
+
+Special shout out go to these amazing folks who have been more than helpful along the way:
+* Christian Haitian
+* Cebion
+* kloptops
+* Bamboozler
+* Acme Plus
+* Chrizzo
