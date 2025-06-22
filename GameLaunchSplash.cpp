@@ -73,9 +73,10 @@ float lerp(float a, float b, float t)
 
 int main(int argc, char *argv[])
 {
-    if (argc != 6)
+    // Accept 6 or 7 arguments (7th is optional background image)
+    if (argc != 6 && argc != 7)
     {
-        std::cerr << "Usage: " << argv[0] << " <image.png> <initial_scale> <final_scale> <fade_time> <show_time>\n";
+        std::cerr << "Usage: " << argv[0] << " <image.png> <initial_scale> <final_scale> <fade_time> <show_time> [background.png]\n";
         return -1;
     }
 
@@ -84,6 +85,10 @@ int main(int argc, char *argv[])
     float finalScale = atof(argv[3]);
     float fadeTime = atof(argv[4]);
     float showTime = atof(argv[5]);
+
+    const char *bgImagePath = nullptr;
+    if (argc == 7)
+        bgImagePath = argv[6];
 
     SDL_Init(SDL_INIT_VIDEO);
     SDL_Window *window = SDL_CreateWindow("Logo Splash",
@@ -114,6 +119,21 @@ int main(int argc, char *argv[])
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imgW, imgH, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
     stbi_image_free(data);
+
+    GLuint bgTexture = 0;
+    int bgW = 0, bgH = 0;
+    if (bgImagePath) {
+        int bgChannels;
+        unsigned char *bgData = stbi_load(bgImagePath, &bgW, &bgH, &bgChannels, STBI_rgb_alpha);
+        if (bgData) {
+            glGenTextures(1, &bgTexture);
+            glBindTexture(GL_TEXTURE_2D, bgTexture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, bgW, bgH, 0, GL_RGBA, GL_UNSIGNED_BYTE, bgData);
+            stbi_image_free(bgData);
+        }
+    }
 
     GLuint shaderProgram = createShaderProgram();
     glUseProgram(shaderProgram);
@@ -155,15 +175,13 @@ int main(int argc, char *argv[])
     float baseScale = std::min(maxWidth / imgW, maxHeight / imgH);
     float baseInitialScale = std::min(maxWidth / imgW, maxHeight / imgH) * (initialScale / finalScale);
 
-    // Clamp so the image never exceeds the window in either dimension
-    float maxAllowedScaleW = (float)screenW / imgW;
-    float maxAllowedScaleH = (float)screenH / imgH;
-    float maxAllowedScale = (maxAllowedScaleW < maxAllowedScaleH) ? maxAllowedScaleW : maxAllowedScaleH;
-
-    if (baseScale > maxAllowedScale)
-        baseScale = maxAllowedScale;
-    if (baseInitialScale > maxAllowedScale)
-        baseInitialScale = maxAllowedScale;
+    // Background scale (cover fit)
+    float bgScale = 1.0f;
+    if (bgTexture) {
+        float scaleW = (float)screenW / bgW;
+        float scaleH = (float)screenH / bgH;
+        bgScale = std::max(scaleW, scaleH); // cover fit
+    }
 
     auto start = std::chrono::high_resolution_clock::now();
     float total = fadeTime * 2 + showTime;
@@ -180,40 +198,72 @@ int main(int argc, char *argv[])
 
         auto now = std::chrono::high_resolution_clock::now();
         float elapsed = std::chrono::duration<float>(now - start).count();
-        if (elapsed >= total)
+
+        // Allow the fade-out phase to finish before breaking
+        if (elapsed >= total + fadeTime)
             break;
 
-        float alpha = 1.0f, scale = baseScale;
-        if (elapsed < fadeTime)
-        {
-            float t = elapsed / fadeTime;
-            alpha = t;
+        // Animation phases:
+        // [0, fadeTime): background fade in
+        // [fadeTime, 2*fadeTime): logo fade/scale in (bg fully visible)
+        // [2*fadeTime, 2*fadeTime+showTime): both fully visible
+        // [2*fadeTime+showTime, total): both fade out
+
+        float bgAlpha = 1.0f;
+        float logoAlpha = 1.0f, scale = baseScale;
+
+        if (elapsed < fadeTime) {
+            // Background fade in
+            bgAlpha = elapsed / fadeTime;
+            logoAlpha = 0.0f;
+            scale = baseInitialScale;
+        } else if (elapsed < fadeTime * 2) {
+            // Logo fade/scale in
+            bgAlpha = 1.0f;
+            float t = (elapsed - fadeTime) / fadeTime;
+            logoAlpha = t;
             scale = lerp(baseInitialScale, baseScale, t);
-        }
-        else if (elapsed < fadeTime + showTime)
-        {
-            alpha = 1.0f;
+        } else if (elapsed < fadeTime * 2 + showTime) {
+            // Both fully visible
+            bgAlpha = 1.0f;
+            logoAlpha = 1.0f;
             scale = baseScale;
-        }
-        else
-        {
-            float t = (elapsed - fadeTime - showTime) / fadeTime;
-            alpha = 1.0f - t;
+        } else {
+            // Both fade out together
+            float t = (elapsed - (fadeTime * 2 + showTime)) / fadeTime;
+            if (t < 0.0f) t = 0.0f;
+            if (t > 1.0f) t = 1.0f;
+            bgAlpha = 1.0f - t;
+            logoAlpha = 1.0f - t;
             scale = lerp(baseScale, baseInitialScale, t);
         }
-
-        glUniform1f(uAlpha, alpha);
-        glUniform1f(uScale, scale);
 
         glViewport(0, 0, screenW, screenH);
         glClearColor(0, 0, 0, 1);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        // Draw background image (cover fit, fade in/out)
+        if (bgTexture) {
+            glBindTexture(GL_TEXTURE_2D, bgTexture);
+            glUniform2f(uImg, (float)bgW, (float)bgH);
+            glUniform1f(uScale, bgScale);
+            glUniform1f(uAlpha, bgAlpha);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
+
+        // Draw main image (logo)
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform2f(uImg, (float)imgW, (float)imgH);
+        glUniform1f(uScale, scale);
+        glUniform1f(uAlpha, logoAlpha);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
         SDL_GL_SwapWindow(window);
     }
 
     glDeleteBuffers(1, &vbo);
+    if (bgTexture)
+        glDeleteTextures(1, &bgTexture);
     glDeleteTextures(1, &texture);
     glDeleteProgram(shaderProgram);
     SDL_GL_DeleteContext(context);
