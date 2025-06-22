@@ -18,7 +18,8 @@ Thanks to the community for being inclusive, welcoming, and kind.
 Special shout out go to these amazing folks who have been more than helpful along the way:
 * Christian Haitian
 * Cebion
-* kloptops
+* Kloptops
 * Bamboozler
 * Acme Plus
 * Chrizzo
+* Benaimino
