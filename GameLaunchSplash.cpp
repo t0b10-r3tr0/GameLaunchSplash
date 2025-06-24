@@ -1,4 +1,3 @@
-// main.cpp - OpenGL ES 2.0 Splash with Fade + Scale using Shaders
 #include <SDL2/SDL.h>
 #include <GLES2/gl2.h>
 #define STB_IMAGE_IMPLEMENTATION

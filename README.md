@@ -1,5 +1,5 @@
 # GameLaunchSplash
-A simple game launch splash screen display for Batocera-like distributions.
+A simple game launch splash screen display for SBC distributions.
 
 ## Written in C++ using SDL 2 and OpenGL ES 2
 * lightweight
