@@ -73,37 +73,12 @@ float lerp(float a, float b, float t)
     return a + t * (b - a);
 }
 
-bool isProcessRunning(const char* name) {
-    DIR* dir = opendir("/proc");
-    if (!dir) return false;
-    struct dirent* ent;
-    while ((ent = readdir(dir)) != nullptr) {
-        if (!isdigit(ent->d_name[0])) continue;
-        char cmdline[512];
-        snprintf(cmdline, sizeof(cmdline), "/proc/%s/cmdline", ent->d_name);
-        FILE* f = fopen(cmdline, "r");
-        if (f) {
-            char buf[256];
-            if (fgets(buf, sizeof(buf), f)) {
-                if (strstr(buf, name)) {
-                    fclose(f);
-                    closedir(dir);
-                    return true;
-                }
-            }
-            fclose(f);
-        }
-    }
-    closedir(dir);
-    return false;
-}
-
 int main(int argc, char *argv[])
 {
-    // Accept 6 or 7 arguments (7th is optional background image)
-    if (argc != 7 && argc != 8)
+    // Accept 5 or 6 arguments (6th is optional background image)
+    if (argc != 6 && argc != 7)
     {
-        std::cerr << "Usage: " << argv[0] << " <image.png> <initial_scale> <final_scale> <fade_time> <show_time> <process_path> [background.png]\n";
+        std::cerr << "Usage: " << argv[0] << " <image.png> <initial_scale> <final_scale> <fade_time> <show_time> [background.png]\n";
         return -1;
     }
 
@@ -112,11 +87,10 @@ int main(int argc, char *argv[])
     float finalScale = atof(argv[3]);
     float fadeTime = atof(argv[4]);
     float showTime = atof(argv[5]);
-    const char *processPath = argv[6];
 
     const char *bgImagePath = nullptr;
-    if (argc == 8)
-        bgImagePath = argv[7];
+    if (argc == 7)
+        bgImagePath = argv[6];
 
     SDL_Init(SDL_INIT_VIDEO);
     SDL_Window *window = SDL_CreateWindow("Logo Splash",
@@ -216,9 +190,6 @@ int main(int argc, char *argv[])
 
     SDL_Event e;
     bool running = true;
-    const char* processName = argv[6];
-    bool forceFadeOut = false;
-    float fadeOutStart = 0.0f;
 
     while (running)
     {
@@ -231,40 +202,19 @@ int main(int argc, char *argv[])
         auto now = std::chrono::high_resolution_clock::now();
         float elapsed = std::chrono::duration<float>(now - start).count();
 
-        // Allow the fade-out phase to finish before breaking
-        if (elapsed >= total + fadeTime)
+        // Exit after fade-in, logo-in, and show time (no fade out)
+        if (elapsed >= total)
             break;
-
-        if (processName && !forceFadeOut) {
-            if (isProcessRunning(processName)) {
-                // Start fade out immediately
-                forceFadeOut = true;
-                // Set elapsed so that we jump to the fade-out phase
-                fadeOutStart = elapsed;
-            }
-        }
 
         // Animation phases:
         // [0, fadeTime): background fade in
         // [fadeTime, 2*fadeTime): logo fade/scale in (bg fully visible)
         // [2*fadeTime, 2*fadeTime+showTime): both fully visible
-        // [2*fadeTime+showTime, total): both fade out
 
         float bgAlpha = 1.0f;
         float logoAlpha = 1.0f, scale = baseScale;
 
-        if (forceFadeOut && elapsed < fadeOutStart + fadeTime) {
-            // During forced fade out
-            float t = (elapsed - fadeOutStart) / fadeTime;
-            if (t < 0.0f) t = 0.0f;
-            if (t > 1.0f) t = 1.0f;
-            bgAlpha = 1.0f - t;
-            logoAlpha = 1.0f - t;
-            scale = lerp(baseScale, baseInitialScale, t);
-        } else if (forceFadeOut && elapsed >= fadeOutStart + fadeTime) {
-            // After forced fade out, exit
-            break;
-        } else if (elapsed < fadeTime) {
+        if (elapsed < fadeTime) {
             // Background fade in
             bgAlpha = elapsed / fadeTime;
             logoAlpha = 0.0f;
@@ -275,26 +225,18 @@ int main(int argc, char *argv[])
             float t = (elapsed - fadeTime) / fadeTime;
             logoAlpha = t;
             scale = lerp(baseInitialScale, baseScale, t);
-        } else if (elapsed < fadeTime * 2 + showTime) {
+        } else {
             // Both fully visible
             bgAlpha = 1.0f;
             logoAlpha = 1.0f;
             scale = baseScale;
-        } else {
-            // Both fade out together
-            float t = (elapsed - (fadeTime * 2 + showTime)) / fadeTime;
-            if (t < 0.0f) t = 0.0f;
-            if (t > 1.0f) t = 1.0f;
-            bgAlpha = 1.0f - t;
-            logoAlpha = 1.0f - t;
-            scale = lerp(baseScale, baseInitialScale, t);
         }
 
         glViewport(0, 0, screenW, screenH);
         glClearColor(0, 0, 0, 1);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Draw background image (cover fit, fade in/out)
+        // Draw background image (cover fit, fade in)
         if (bgTexture) {
             glBindTexture(GL_TEXTURE_2D, bgTexture);
             glUniform2f(uImg, (float)bgW, (float)bgH);
